@@ -63,7 +63,6 @@ public class AviExtractor implements Extractor, SeekMap {
     private TrackOutput audioTrack;
     private TrackOutput videoTrack;
 
-    private final ArrayList<AviTrack> tracks = new ArrayList<>();
     private byte[] idx = null;
     private int numberOfAudioChannels = 0;
     private long durationUs = C.TIME_UNSET;
@@ -224,7 +223,6 @@ public class AviExtractor implements Extractor, SeekMap {
             /**
              * Audio
              */
-            audioTrack = tracks.get(1).trackOutput;
             readBuffer(input, currentChunkSize);
             //audioTrack.sampleData(new ParsableByteArray(readBuffer(input, currentChunkSize)), currentChunkSize);
             return false;
@@ -352,10 +350,6 @@ public class AviExtractor implements Extractor, SeekMap {
 
                     //TrackOutput trackOutput = extractorOutput.track(/* id= */ 0, C.TRACK_TYPE_IMAGE);
 
-                    long[] l = new long[1];
-                    l[0] = 18020;
-                    long[] s = new long[1];
-                    s[0] = 0;
 
                     //videoTrack = this.extractorOutput.track(0, C.TRACK_TYPE_VIDEO);
                     byte[][] arr = new byte[][]{new byte[]{0, 0, 0, 1, 103, 66, -64, 30, -39, 1, -32, -113, -21, 1, 16, 0, 0, 3, 0, 16, 0, 0, 3, 3, -64, -15, 98, -28, -128},new byte[]{0, 0, 0, 1, 104, -53, -116, -78}};
@@ -370,37 +364,22 @@ public class AviExtractor implements Extractor, SeekMap {
                                     .setMaxInputSize(51650)
                                     .setInitializationData(new ArrayList<>(Arrays.asList(arr)))
                                     .build();
-                    Track track = new Track(0, C.TRACK_TYPE_VIDEO, 30, 600, this.durationUs, format, Track.TRANSFORMATION_NONE, null, 4, l, s);
-                    AviTrack aviTrack = new AviTrack(track, this.extractorOutput.track(0, C.TRACK_TYPE_VIDEO));
-                    aviTrack.trackOutput.format(aviTrack.track.format);
-                    tracks.add(aviTrack);
-                    videoTrack = tracks.get(0).trackOutput;
-
-                    //videoTrack.format(format);
+                    videoTrack = this.extractorOutput.track(0, C.TRACK_TYPE_VIDEO);
+                    videoTrack.format(format);
 
                 }
                 if ("auds".equalsIgnoreCase(command2)) {
-                    //scaleAudio = str2ulong(hdrl, i + 28);
-                    //rateAudio = str2ulong(hdrl, i + 32);
-                    //sampleSizeAudio = str2ulong(hdrl, i + 52);
-                    long[] l = new long[1];
-                    l[0] = 18020;
-                    long[] s = new long[1];
-                    s[0] = 0;
+
+
                     Format format =
                             new Format.Builder()
                                     .setId(2)
                                     .build();
-                    Track track = new Track(0, C.TRACK_TYPE_AUDIO, 30, 600, this.durationUs, format, Track.TRANSFORMATION_NONE, null, 4, l, s);
-                    AviTrack aviTrack = new AviTrack(track, this.extractorOutput.track(1 + numberOfAudioChannels, C.TRACK_TYPE_AUDIO));
+                    audioTrack = this.extractorOutput.track(1 + numberOfAudioChannels, C.TRACK_TYPE_AUDIO);
+                    audioTrack.format(format);
                     numberOfAudioChannels++;
-                    aviTrack.trackOutput.format(aviTrack.track.format);
-                    tracks.add(aviTrack);
                     lastTagID = 2;
-                    audioTrack = tracks.get(1).trackOutput;
-                    /*Format format = new Format.Builder()
-                            .build();
-                    audioTrack.format(format);*/
+
                 }
             }
             if ( "strf".equalsIgnoreCase( command ) ) {
@@ -476,22 +455,6 @@ public class AviExtractor implements Extractor, SeekMap {
         System.out.println("Exctractor RELEASE");
     }
 
-
-}
-
-final class AviTrack {
-
-    public final Track track;
-    //public final TrackSampleTable sampleTable;
-    public final TrackOutput trackOutput;
-
-
-
-    public AviTrack(Track track, TrackOutput trackOutput) {
-        this.track = track;
-        //this.sampleTable = sampleTable;
-        this.trackOutput = trackOutput;
-    }
 
 }
 
