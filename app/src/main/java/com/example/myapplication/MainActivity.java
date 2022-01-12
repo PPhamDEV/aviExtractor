@@ -29,6 +29,7 @@ public class MainActivity extends AppCompatActivity {
     String mp4Video2 = "asset:///sample-avi-file.mp4";
     String aviVideo2 = "asset:///sample-avi-file.avi";
     String aviVideo3 = "asset:///video.avi";
+    String aviVideo4 = "asset:///test.avi";
     // url of video which we are loading.
     String videoURL =
             "https://media.geeksforgeeks.org/wp-content/uploads/20201217163353/Screenrecorder"
@@ -77,7 +78,7 @@ public class MainActivity extends AppCompatActivity {
             // we are creating a media source with above variables
             // and passing our event handler as null,
             MediaItem mediaItem =
-                    MediaItem.fromUri(Uri.parse(aviVideo));
+                    MediaItem.fromUri(Uri.parse(aviVideo3));
 
             MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory,
                                                                          extractorsFactory).createMediaSource(mediaItem);

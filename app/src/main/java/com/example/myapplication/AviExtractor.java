@@ -7,12 +7,10 @@ import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.extractor.Extractor;
 import com.google.android.exoplayer2.extractor.ExtractorInput;
 import com.google.android.exoplayer2.extractor.ExtractorOutput;
-import com.google.android.exoplayer2.extractor.IndexSeekMap;
 import com.google.android.exoplayer2.extractor.PositionHolder;
 import com.google.android.exoplayer2.extractor.SeekMap;
 import com.google.android.exoplayer2.extractor.TrackOutput;
 import com.google.android.exoplayer2.util.Assertions;
-import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.ParsableByteArray;
 
 import java.io.IOException;
@@ -24,6 +22,9 @@ public class AviExtractor implements Extractor, SeekMap {
 
     private static final int MAX_AUDIO_STREAMS = 1;
     private boolean isEndOfInput = false;
+    private boolean SPSfound = false;
+    private boolean initDataAlreadySent = false;
+    private boolean PPSfound = false;
 
     @Override
     public boolean isSeekable() {
@@ -63,10 +64,14 @@ public class AviExtractor implements Extractor, SeekMap {
     private TrackOutput audioTrack;
     private TrackOutput videoTrack;
 
+    private byte[][] readChunks;
+
     private final ArrayList<AviTrack> tracks = new ArrayList<>();
+    ArrayList<byte[]> chunkQueue = new ArrayList<>();
     private byte[] idx = null;
     private int numberOfAudioChannels = 0;
     private long durationUs = C.TIME_UNSET;
+    private int lastTagID = 0;
 
     private int index = 0;
     private String streamVideoTag;
@@ -190,29 +195,90 @@ public class AviExtractor implements Extractor, SeekMap {
              * Video
              */
 
-            ParsableByteArray chunk = new ParsableByteArray(readBuffer(input, currentChunkSize));
+            ParsableByteArray currentChunk = new ParsableByteArray(readBuffer(input, currentChunkSize));
 
             byte[] chunkHeader = new byte[4];
             byte[] payload = new byte[currentChunkSize - 4];
 
 
-            chunk.readBytes(chunkHeader,0, 4);
-            chunk.readBytes(payload, 0, currentChunkSize - 4);
+            currentChunk.readBytes(chunkHeader,0, 4);
+            currentChunk.readBytes(payload, 0, currentChunkSize - 4);
 
             TrackOutput to = videoTrack;
 
-            to.sampleData(new ParsableByteArray(new byte[]{0,0,0,1}), 4);
-            to.sampleData(new ParsableByteArray(payload), currentChunkSize-4);
+            SPSfound = Integer.toString(payload[0]).charAt(1) =='7';
 
-            int flag = payload[0] % 10 == 5 || index == 0 ? 1 : 0;
+            if(!SPSfound){
+                chunkQueue.add(payload);
+            }
+
+            if(SPSfound && !initDataAlreadySent){
+                int endOfSPSindex = 0;
+                byte[] PPS = new byte[0];
+                byte[] SPS = new byte[0];
+                for(int i = 0; i < payload.length - 1; i++){
+
+
+                    boolean endOfSPS = payload[i+1] == 0 && payload[i+2] == 0 && payload[i+3] == 0 && payload[i+4] == 1;
+                    if(endOfSPS){
+                        SPS = new byte[i+1];
+                        System.arraycopy(payload, 0, SPS, 0, i+1);
+                        endOfSPSindex = i;
+                        SPSfound = true;
+                    }
+
+                }
+
+                for(int i = endOfSPSindex + 4; i < payload.length - 1; i++){
+                    boolean endOfPPS = payload[i+1] == 0 && payload[i+2] == 0 && payload[i+3] == 0 && payload[i+4] == 1;
+                    if(endOfPPS){
+                        PPS = new byte[i+1];
+                        System.arraycopy(payload, 0, PPS, 0, i+1);
+                        PPSfound = true;
+                    }
+                }
+
+                byte[][] initData = new byte[][]{SPS, PPS};
 
 
 
-            //positions = addX(positions, currentChunkSize +3 + positions[index]);
-            //timesUs = addX(timesUs, (long) index * rateVideo *1000L/scaleVideo);
-            to.sampleMetadata((long) index * aviHeader.getDwMicroSecPerFrame(), flag, currentChunkSize, 0, null);
+                long[] l = new long[1];
+                l[0] = 18020;
+                long[] s = new long[1];
+                s[0] = 0;
 
-            index++;
+                lastTagID = 1;
+                Format format = new Format.Builder()
+                        .setId(1)
+                        .setFrameRate(901 / (durationUs / 1000000f))
+                        .setCodecs(null)
+                        .setSampleMimeType("video/avc")
+                        .setWidth(480)
+                        .setHeight(270)
+                        .setMaxInputSize(51650)
+                        .setInitializationData(new ArrayList<>(Arrays.asList(initData)))
+                        .build();
+
+                // TODO: EIGENEN TRACK BAUEN?
+                Track track = new Track(0, C.TRACK_TYPE_VIDEO, 30, 600, this.durationUs, format, Track.TRANSFORMATION_NONE, null, 4, l, s);
+                AviTrack aviTrack = new AviTrack(track, this.extractorOutput.track(0, C.TRACK_TYPE_VIDEO));
+                aviTrack.trackOutput.format(aviTrack.track.format);
+                tracks.add(aviTrack);
+                to = tracks.get(0).trackOutput;
+
+                initDataAlreadySent = true;
+
+                for(int i = 0; i< chunkQueue.size(); i++) {
+                    byte[] chunk = chunkQueue.get(i);
+                    sendSampleData(to, chunk, chunk.length, i);
+                }
+                index = chunkQueue.size() - 1;
+
+            }
+
+            if(SPSfound && PPSfound && initDataAlreadySent){
+                sendSampleData(to, payload, currentChunkSize, index);
+            }
 
             return true;
         }
@@ -224,7 +290,7 @@ public class AviExtractor implements Extractor, SeekMap {
             /**
              * Audio
              */
-            audioTrack = tracks.get(1).trackOutput;
+            //audioTrack = tracks.get(1).trackOutput;
             readBuffer(input, currentChunkSize);
             //audioTrack.sampleData(new ParsableByteArray(readBuffer(input, currentChunkSize)), currentChunkSize);
             return false;
@@ -232,6 +298,14 @@ public class AviExtractor implements Extractor, SeekMap {
         }
         throw new IOException( "Not header " + command );
     }
+
+    private void sendSampleData(TrackOutput trackOut, byte[] payload, int chunkSize, int indexInQueue){
+        trackOut.sampleData(new ParsableByteArray(new byte[]{0,0,0,1}), 4);
+        trackOut.sampleData(new ParsableByteArray(payload), chunkSize-4);
+        int flag = payload[0] % 10 == 5 || indexInQueue == 0 ? 1 : 0;
+        trackOut.sampleMetadata((long) indexInQueue * aviHeader.getDwMicroSecPerFrame(), flag, chunkSize, 0, null);
+    }
+
     public static long[] addX( long arr[], long x)
     {
         int i;
@@ -306,7 +380,7 @@ public class AviExtractor implements Extractor, SeekMap {
         int lastTagID = 0;
         for ( int i = 0; i < hdrl.length; ) {
             String command = new String(hdrl, i, 4);
-            int size = str2ulong(hdrl, i + 4);
+            int size = convertByteArrayToUInt(hdrl, i + 4);
 
             if ("LIST".equals(command)) {
                 i += 12;
@@ -317,64 +391,43 @@ public class AviExtractor implements Extractor, SeekMap {
             String command2 = new String(hdrl, i + 8, 4);
             if ("avih".equals(command)){
                 aviHeader = new AVIHeader();
-                aviHeader.setDwMicroSecPerFrame(str2ulong(hdrl, i + 8));
-                aviHeader.setDwMaxBytesPerSec(str2ulong(hdrl, i + 12));
-                aviHeader.setDwPaddingGranularity(str2ulong(hdrl, i + 16));
-                aviHeader.setDwFlags(str2ulong(hdrl, i + 20));
-                aviHeader.setDwTotalFrames(str2ulong(hdrl, i + 24));
-                aviHeader.setDwInitialFrames(str2ulong(hdrl, i + 28));
-                aviHeader.setDwStreams(str2ulong(hdrl, i + 32));
-                aviHeader.setDwSuggestedBufferSize(str2ulong(hdrl, i + 36));
-                aviHeader.setDwWidth(str2ulong(hdrl, i + 40));
-                aviHeader.setDwHeight(str2ulong(hdrl, i + 44));
+                aviHeader.setDwMicroSecPerFrame(convertByteArrayToUInt(hdrl, i + 8));
+                aviHeader.setDwMaxBytesPerSec(convertByteArrayToUInt(hdrl, i + 12));
+                aviHeader.setDwPaddingGranularity(convertByteArrayToUInt(hdrl, i + 16));
+                aviHeader.setDwFlags(convertByteArrayToUInt(hdrl, i + 20));
+                aviHeader.setDwTotalFrames(convertByteArrayToUInt(hdrl, i + 24));
+                aviHeader.setDwInitialFrames(convertByteArrayToUInt(hdrl, i + 28));
+                aviHeader.setDwStreams(convertByteArrayToUInt(hdrl, i + 32));
+                aviHeader.setDwSuggestedBufferSize(convertByteArrayToUInt(hdrl, i + 36));
+                aviHeader.setDwWidth(convertByteArrayToUInt(hdrl, i + 40));
+                aviHeader.setDwHeight(convertByteArrayToUInt(hdrl, i + 44));
                 this.durationUs = (long) aviHeader.getDwTotalFrames() * aviHeader.getDwMicroSecPerFrame();
             }
             if ("strh".equals(command)) {
                 lastTagID = 0;
                 if ("vids".equals(command2)) {
                     StreamHeader strhVideo = new StreamHeader();
+                    strhVideo.setFccType(new String(hdrl, i + 8, 4));
                     strhVideo.setFccHandler(new String(hdrl, i + 12, 4));
-                    strhVideo.setDwFlags(str2ulong(hdrl, i + 16));
-                    strhVideo.setwPriority(str2ulong(hdrl, i + 20));
-                    strhVideo.setwLanguage(str2ulong(hdrl, i + 24));
-                    strhVideo.setDwScale(str2ulong(hdrl, i + 28));
-                    strhVideo.setDwRate(str2ulong(hdrl, i + 32));
-                    strhVideo.setDwStart(str2ulong(hdrl, i + 36));
-                    strhVideo.setDwLength(str2ulong(hdrl, i + 40));
-                    strhVideo.setDwSuggestedBufferSize(str2ulong(hdrl, i + 44));
-                    strhVideo.setDwQuality(str2ulong(hdrl, i + 48));
-                    strhVideo.setDwSampleSize(str2ulong(hdrl, i + 52));
-                    strhVideo.setRcFrameLeft(str2ulong(hdrl, i + 56));
-                    strhVideo.setRcFrameTop(str2ulong(hdrl, i + 60));
-                    strhVideo.setRcFrameRight(str2ulong(hdrl, i + 64));
-                    strhVideo.setRcFrameBottom(str2ulong(hdrl, i + 68));
+                    strhVideo.setDwFlags(convertByteArrayToUInt(hdrl, i + 16));
+                    strhVideo.setwPriority(convertByteArrayToUInt(hdrl, i + 20));
+                    strhVideo.setwLanguage(convertByteArrayToUInt(hdrl, i + 24));
+                    strhVideo.setDwScale(convertByteArrayToUInt(hdrl, i + 28));
+                    strhVideo.setDwRate(convertByteArrayToUInt(hdrl, i + 32));
+                    strhVideo.setDwStart(convertByteArrayToUInt(hdrl, i + 36));
+                    strhVideo.setDwLength(convertByteArrayToUInt(hdrl, i + 40));
+                    strhVideo.setDwSuggestedBufferSize(convertByteArrayToUInt(hdrl, i + 44));
+                    strhVideo.setDwQuality(convertByteArrayToUInt(hdrl, i + 48));
+                    strhVideo.setDwSampleSize(convertByteArrayToUInt(hdrl, i + 52));
+                    strhVideo.setRcFrameLeft(convertByteArrayToUInt(hdrl, i + 56, true));
+                    strhVideo.setRcFrameTop(convertByteArrayToUInt(hdrl, i + 58, true));
+                    strhVideo.setRcFrameRight(convertByteArrayToUInt(hdrl, i + 60, true));
+                    strhVideo.setRcFrameBottom(convertByteArrayToUInt(hdrl, i + 62, true));
                     streamVideoTag = getVideoTag(0);
 
                     //TrackOutput trackOutput = extractorOutput.track(/* id= */ 0, C.TRACK_TYPE_IMAGE);
+//TODO: BRAUCHT MAN DAS?
 
-                    long[] l = new long[1];
-                    l[0] = 18020;
-                    long[] s = new long[1];
-                    s[0] = 0;
-
-                    //videoTrack = this.extractorOutput.track(0, C.TRACK_TYPE_VIDEO);
-                    byte[][] arr = new byte[][]{new byte[]{0, 0, 0, 1, 103, 66, -64, 30, -39, 1, -32, -113, -21, 1, 16, 0, 0, 3, 0, 16, 0, 0, 3, 3, -64, -15, 98, -28, -128},new byte[]{0, 0, 0, 1, 104, -53, -116, -78}};
-                    lastTagID = 1;
-                    Format format = new Format.Builder()
-                                    .setId(1)
-                                    .setFrameRate(901 / (durationUs / 1000000f))
-                                    .setCodecs(null)
-                                    .setSampleMimeType("video/avc")
-                                    .setWidth(480)
-                                    .setHeight(270)
-                                    .setMaxInputSize(51650)
-                                    .setInitializationData(new ArrayList<>(Arrays.asList(arr)))
-                                    .build();
-                    Track track = new Track(0, C.TRACK_TYPE_VIDEO, 30, 600, this.durationUs, format, Track.TRANSFORMATION_NONE, null, 4, l, s);
-                    AviTrack aviTrack = new AviTrack(track, this.extractorOutput.track(0, C.TRACK_TYPE_VIDEO));
-                    aviTrack.trackOutput.format(aviTrack.track.format);
-                    tracks.add(aviTrack);
-                    videoTrack = tracks.get(0).trackOutput;
 
                     //videoTrack.format(format);
 
@@ -397,7 +450,7 @@ public class AviExtractor implements Extractor, SeekMap {
                     aviTrack.trackOutput.format(aviTrack.track.format);
                     tracks.add(aviTrack);
                     lastTagID = 2;
-                    audioTrack = tracks.get(1).trackOutput;
+                    //audioTrack = tracks.get(1).trackOutput;
                     /*Format format = new Format.Builder()
                             .build();
                     audioTrack.format(format);*/
@@ -441,12 +494,21 @@ public class AviExtractor implements Extractor, SeekMap {
     /**
      * str2ulong
      */
-    public static final int str2ulong( byte[] data, int i ) {
+    public static final int convertByteArrayToUInt(byte[] data, int i){
+        return convertByteArrayToUInt(data, i, false);
+    }
+    public static final int convertByteArrayToUInt(byte[] data, int i, boolean isShortInt) {
+
+        if(isShortInt){
+            return    (data[ i ] & 0xff)  | ((data[ i + 1 ] & 0xff) << 8 );
+        }
+
         return    (data[ i ] & 0xff)
                 | ((data[ i + 1 ] & 0xff) << 8 )
                 | ((data[ i + 2 ] & 0xff) << 16 )
                 | ((data[ i + 3 ] & 0xff) << 24 );
     }
+
     //@RequiresNonNull("extractorOutput")
     /*private boolean readAviHeader(ExtractorInput input) throws IOException {
         if (!input.readFully(headerBuffer.getData(), 0, AVI_HEADER_SIZE, true)) {
