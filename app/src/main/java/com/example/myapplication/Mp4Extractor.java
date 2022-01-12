@@ -14,7 +14,6 @@ package com.example.myapplication;/*
  * limitations under the License.
  */
 
-
 import static com.example.myapplication.AtomParsers.parseTraks;
 import static com.example.myapplication.Sniffer.BRAND_HEIC;
 import static com.example.myapplication.Sniffer.BRAND_QUICKTIME;
@@ -55,12 +54,11 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /** Extracts data from the MP4 container format. */
 public final class Mp4Extractor implements Extractor, SeekMap {
-  int counter = 0;
+
   /** Factory for {@link Mp4Extractor} instances. */
   public static final ExtractorsFactory FACTORY = () -> new Extractor[] {new Mp4Extractor()};
 
@@ -72,12 +70,12 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @IntDef(
-      flag = true,
-      value = {
-        FLAG_WORKAROUND_IGNORE_EDIT_LISTS,
-        FLAG_READ_MOTION_PHOTO_METADATA,
-        FLAG_READ_SEF_DATA
-      })
+          flag = true,
+          value = {
+                  FLAG_WORKAROUND_IGNORE_EDIT_LISTS,
+                  FLAG_READ_MOTION_PHOTO_METADATA,
+                  FLAG_READ_SEF_DATA
+          })
   public @interface Flags {}
   /** Flag to ignore any edit lists in the stream. */
   public static final int FLAG_WORKAROUND_IGNORE_EDIT_LISTS = 1;
@@ -99,10 +97,10 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @IntDef({
-    STATE_READING_ATOM_HEADER,
-    STATE_READING_ATOM_PAYLOAD,
-    STATE_READING_SAMPLE,
-    STATE_READING_SEF,
+          STATE_READING_ATOM_HEADER,
+          STATE_READING_ATOM_PAYLOAD,
+          STATE_READING_SAMPLE,
+          STATE_READING_SEF,
   })
   private @interface State {}
 
@@ -180,7 +178,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   public Mp4Extractor(@Flags int flags) {
     this.flags = flags;
     parserState =
-        ((flags & FLAG_READ_SEF_DATA) != 0) ? STATE_READING_SEF : STATE_READING_ATOM_HEADER;
+            ((flags & FLAG_READ_SEF_DATA) != 0) ? STATE_READING_SEF : STATE_READING_ATOM_HEADER;
     sefReader = new SefReader();
     slowMotionMetadataEntries = new ArrayList<>();
     atomHeader = new ParsableByteArray(Atom.LONG_HEADER_SIZE);
@@ -194,7 +192,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   @Override
   public boolean sniff(ExtractorInput input) throws IOException {
     return Sniffer.sniffUnfragmented(
-        input, /* acceptHeic= */ (flags & FLAG_READ_MOTION_PHOTO_METADATA) != 0);
+            input, /* acceptHeic= */ (flags & FLAG_READ_MOTION_PHOTO_METADATA) != 0);
   }
 
   @Override
@@ -204,7 +202,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
 
   @Override
   public void seek(long position, long timeUs) {
-    /*containerAtoms.clear();
+    containerAtoms.clear();
     atomHeaderBytesRead = 0;
     sampleTrackIndex = C.INDEX_UNSET;
     sampleBytesRead = 0;
@@ -226,7 +224,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
           track.trueHdSampleRechunker.reset();
         }
       }
-    }*/
+    }
   }
 
   @Override
@@ -238,23 +236,22 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   public int read(ExtractorInput input, PositionHolder seekPosition) throws IOException {
     while (true) {
       switch (parserState) {
-        case STATE_READING_ATOM_HEADER:
-          if (!readAtomHeader(input)) {
-            System.out.println("hallo" + counter);
-            return RESULT_END_OF_INPUT;
-          }
-          break;
-        case STATE_READING_ATOM_PAYLOAD:
-          if (readAtomPayload(input, seekPosition)) {
-            return RESULT_SEEK;
-          }
-          break;
-        case STATE_READING_SAMPLE:
-          return readSample(input, seekPosition);
-        case STATE_READING_SEF:
-          return readSefData(input, seekPosition);
-        default:
-          throw new IllegalStateException();
+      case STATE_READING_ATOM_HEADER:
+        if (!readAtomHeader(input)) {
+          return RESULT_END_OF_INPUT;
+        }
+        break;
+      case STATE_READING_ATOM_PAYLOAD:
+        if (readAtomPayload(input, seekPosition)) {
+          return RESULT_SEEK;
+        }
+        break;
+      case STATE_READING_SAMPLE:
+        return readSample(input, seekPosition);
+      case STATE_READING_SEF:
+        return readSefData(input, seekPosition);
+      default:
+        throw new IllegalStateException();
       }
     }
   }
@@ -263,18 +260,17 @@ public final class Mp4Extractor implements Extractor, SeekMap {
 
   @Override
   public boolean isSeekable() {
-    return false;
+    return true;
   }
 
   @Override
   public long getDurationUs() {
-    return 1000000;
+    return durationUs;
   }
 
   @Override
   public SeekPoints getSeekPoints(long timeUs) {
-    return null;
-    /*if (checkNotNull(tracks).length == 0) {
+    if (checkNotNull(tracks).length == 0) {
       return new SeekPoints(SeekPoint.START);
     }
 
@@ -322,7 +318,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     } else {
       SeekPoint secondSeekPoint = new SeekPoint(secondTimeUs, secondOffset);
       return new SeekPoints(firstSeekPoint, secondSeekPoint);
-    }*/
+    }
   }
 
   // Private methods.
@@ -368,7 +364,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
 
     if (atomSize < atomHeaderBytesRead) {
       throw ParserException.createForUnsupportedContainerFeature(
-          "Atom size less than header length (unsupported).");
+              "Atom size less than header length (unsupported).");
     }
 
     if (shouldParseContainerAtom(atomType)) {
@@ -407,7 +403,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
    * restart loading at the position in {@code positionHolder}. Otherwise, the atom is read/skipped.
    */
   private boolean readAtomPayload(ExtractorInput input, PositionHolder positionHolder)
-      throws IOException {
+          throws IOException {
     long atomPayloadSize = atomSize - atomHeaderBytesRead;
     long atomEndPosition = input.getPosition() + atomPayloadSize;
     boolean seekRequired = false;
@@ -471,8 +467,8 @@ public final class Mp4Extractor implements Extractor, SeekMap {
     GaplessInfoHolder gaplessInfoHolder = new GaplessInfoHolder();
     @Nullable Atom.LeafAtom udta = moov.getLeafAtomOfType(Atom.TYPE_udta);
     if (udta != null) {
-      Pair< Metadata,  Metadata> udtaMetadata =
-          AtomParsers.parseUdta(udta);
+      Pair<Metadata, Metadata> udtaMetadata =
+              AtomParsers.parseUdta(udta);
       udtaMetaMetadata = udtaMetadata.first;
       smtaMetadata = udtaMetadata.second;
       if (udtaMetaMetadata != null) {
@@ -487,14 +483,14 @@ public final class Mp4Extractor implements Extractor, SeekMap {
 
     boolean ignoreEditLists = (flags & FLAG_WORKAROUND_IGNORE_EDIT_LISTS) != 0;
     List<TrackSampleTable> trackSampleTables =
-        parseTraks(
-            moov,
-            gaplessInfoHolder,
-            /* duration= */ C.TIME_UNSET,
-            /* drmInitData= */ null,
-            ignoreEditLists,
-            isQuickTime,
-            /* modifyTrackFunction= */ track -> track);
+            parseTraks(
+                    moov,
+                    gaplessInfoHolder,
+                    /* duration= */ C.TIME_UNSET,
+                    /* drmInitData= */ null,
+                    ignoreEditLists,
+                    isQuickTime,
+                    /* modifyTrackFunction= */ track -> track);
 
     ExtractorOutput extractorOutput = checkNotNull(this.extractorOutput);
     int trackCount = trackSampleTables.size();
@@ -505,10 +501,10 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       }
       Track track = trackSampleTable.track;
       long trackDurationUs =
-          track.durationUs != C.TIME_UNSET ? track.durationUs : trackSampleTable.durationUs;
+              track.durationUs != C.TIME_UNSET ? track.durationUs : trackSampleTable.durationUs;
       durationUs = max(durationUs, trackDurationUs);
       Mp4Track mp4Track =
-          new Mp4Track(track, trackSampleTable, extractorOutput.track(i, track.type));
+              new Mp4Track(track, trackSampleTable, extractorOutput.track(i, track.type));
 
       int maxInputSize;
       if (MimeTypes.AUDIO_TRUEHD.equals(track.format.sampleMimeType)) {
@@ -521,37 +517,27 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       }
 
       Format.Builder formatBuilder = track.format.buildUpon();
-      /*formatBuilder.setMaxInputSize(maxInputSize);
+      formatBuilder.setMaxInputSize(maxInputSize);
       if (track.type == C.TRACK_TYPE_VIDEO
           && trackDurationUs > 0
           && trackSampleTable.sampleCount > 1) {
         float frameRate = trackSampleTable.sampleCount / (trackDurationUs / 1000000f);
         formatBuilder.setFrameRate(frameRate);
-      }*/
+      }
 
-      //MetadataUtil.setFormatGaplessInfo(track.type, gaplessInfoHolder, formatBuilder);
-      /*MetadataUtil.setFormatMetadata(
-          track.type,
-          udtaMetaMetadata,
-          mdtaMetadata,
-          formatBuilder,
-          smtaMetadata,
-          slowMotionMetadataEntries.isEmpty() ? null : new Metadata(slowMotionMetadataEntries));*/
-      byte[][] arr = new byte[][]{new byte[]{0, 0, 0, 1, 103, 66, -64, 30, -39, 1, -32, -113, -21, 1, 16, 0, 0, 3, 0, 16, 0, 0, 3, 3, -64, -15, 98, -28, -128},new byte[]{0, 0, 0, 1, 104, -53, -116, -78}};
-      Format format = new Format.Builder()
-              .setSampleMimeType("video/avc")
-              .setFrameRate(901 / (durationUs / 1000000f))
-              .setCodecs(null)
-              .setSampleMimeType(MimeTypes.VIDEO_H264)
-              .setWidth(480)
-              .setHeight(270)
-              .setMaxInputSize(51650)
-      .setInitializationData(new ArrayList<>(Arrays.asList(arr))).build();
-      mp4Track.trackOutput.format(format);
+      MetadataUtil.setFormatGaplessInfo(track.type, gaplessInfoHolder, formatBuilder);
+      MetadataUtil.setFormatMetadata(
+              track.type,
+              udtaMetaMetadata,
+              mdtaMetadata,
+              formatBuilder,
+              smtaMetadata,
+              slowMotionMetadataEntries.isEmpty() ? null : new Metadata(slowMotionMetadataEntries));
+      mp4Track.trackOutput.format(formatBuilder.build());
 
-      /*if (track.type == C.TRACK_TYPE_VIDEO && firstVideoTrackIndex == C.INDEX_UNSET) {
+      if (track.type == C.TRACK_TYPE_VIDEO && firstVideoTrackIndex == C.INDEX_UNSET) {
         firstVideoTrackIndex = tracks.size();
-      }*/
+      }
       tracks.add(mp4Track);
     }
     this.firstVideoTrackIndex = firstVideoTrackIndex;
@@ -625,7 +611,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
           int nalLengthInt = nalLength.readInt();
           if (nalLengthInt < 0) {
             throw ParserException.createForMalformedContainer(
-                "Invalid NAL length", /* cause= */ null);
+                    "Invalid NAL length", /* cause= */ null);
           }
           sampleCurrentNalBytesRemaining = nalLengthInt;
           // Write a start code for the current NAL unit.
@@ -635,9 +621,6 @@ public final class Mp4Extractor implements Extractor, SeekMap {
           sampleSize += nalUnitLengthFieldLengthDiff;
         } else {
           // Write the payload of the NAL unit.
-          byte[] test = new byte[1000000];
-          input.peek(test, 0, (int) position);
-          input.resetPeekPosition();
           int writtenBytes = trackOutput.sampleData(input, sampleCurrentNalBytesRemaining, false);
           sampleBytesRead += writtenBytes;
           sampleBytesWritten += writtenBytes;
@@ -648,38 +631,33 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       if (MimeTypes.AUDIO_AC4.equals(track.track.format.sampleMimeType)) {
         if (sampleBytesWritten == 0) {
           Ac4Util.getAc4SampleHeader(sampleSize, scratch);
-          //trackOutput.sampleData(scratch, Ac4Util.SAMPLE_HEADER_SIZE);
+          trackOutput.sampleData(scratch, Ac4Util.SAMPLE_HEADER_SIZE);
           sampleBytesWritten += Ac4Util.SAMPLE_HEADER_SIZE;
         }
         sampleSize += Ac4Util.SAMPLE_HEADER_SIZE;
       } else if (trueHdSampleRechunker != null) {
         trueHdSampleRechunker.startSample(input);
       }
+
       while (sampleBytesWritten < sampleSize) {
-        //System.out.println("test");
         int writtenBytes = trackOutput.sampleData(input, sampleSize - sampleBytesWritten, false);
         sampleBytesRead += writtenBytes;
         sampleBytesWritten += writtenBytes;
         sampleCurrentNalBytesRemaining -= writtenBytes;
       }
-
-
     }
+
     long timeUs = track.sampleTable.timestampsUs[sampleIndex];
     @C.BufferFlags int flags = track.sampleTable.flags[sampleIndex];
-    /*byte[] test = new byte[1000000];
-    input.peek(test, 0, (int) position);
-    input.resetPeekPosition();
-    flags = C.BUFFER_FLAG_KEY_FRAME;*/
     if (trueHdSampleRechunker != null) {
       trueHdSampleRechunker.sampleMetadata(
-          trackOutput, timeUs, flags, sampleSize, /* offset= */ 0, /* cryptoData= */ null);
+              trackOutput, timeUs, flags, sampleSize, /* offset= */ 0, /* cryptoData= */ null);
       if (sampleIndex + 1 == track.sampleTable.sampleCount) {
         trueHdSampleRechunker.outputPendingSampleMetadata(trackOutput, /* cryptoData= */ null);
       }
     } else {
       trackOutput.sampleMetadata(
-          timeUs, flags, sampleSize, /* offset= */ 0, /* cryptoData= */ null);
+              timeUs, flags, sampleSize, /* offset= */ 0, /* cryptoData= */ null);
     }
 
     track.sampleIndex++;
@@ -735,10 +713,10 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       }
     }
     return minAccumulatedBytes == Long.MAX_VALUE
-            || !minAccumulatedBytesRequiresReload
-            || preferredAccumulatedBytes < minAccumulatedBytes + MAXIMUM_READ_AHEAD_BYTES_STREAM
-        ? preferredTrackIndex
-        : minAccumulatedBytesTrackIndex;
+           || !minAccumulatedBytesRequiresReload
+           || preferredAccumulatedBytes < minAccumulatedBytes + MAXIMUM_READ_AHEAD_BYTES_STREAM
+           ? preferredTrackIndex
+           : minAccumulatedBytesTrackIndex;
   }
 
   /** Updates a track's sample index to point its latest sync sample before/at {@code timeUs}. */
@@ -780,12 +758,12 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       // The input is an HEIC motion photo following the Google Photos Motion Photo File Format
       // V1.1.
       motionPhotoMetadata =
-          new MotionPhotoMetadata(
-              /* photoStartPosition= */ 0,
-              /* photoSize= */ atomStartPosition,
-              /* photoPresentationTimestampUs= */ C.TIME_UNSET,
-              /* videoStartPosition= */ atomStartPosition + atomHeaderBytesRead,
-              /* videoSize= */ atomSize - atomHeaderBytesRead);
+              new MotionPhotoMetadata(
+                      /* photoStartPosition= */ 0,
+                      /* photoSize= */ atomStartPosition,
+                      /* photoPresentationTimestampUs= */ C.TIME_UNSET,
+                      /* videoStartPosition= */ atomStartPosition + atomHeaderBytesRead,
+                      /* videoSize= */ atomSize - atomHeaderBytesRead);
     }
   }
 
@@ -819,7 +797,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       nextSampleIndex[minTimeTrackIndex] = ++trackSampleIndex;
       if (trackSampleIndex < accumulatedSampleSizes[minTimeTrackIndex].length) {
         nextSampleTimesUs[minTimeTrackIndex] =
-            tracks[minTimeTrackIndex].sampleTable.timestampsUs[trackSampleIndex];
+                tracks[minTimeTrackIndex].sampleTable.timestampsUs[trackSampleIndex];
       } else {
         tracksFinished[minTimeTrackIndex] = true;
         finishedTracks++;
@@ -838,7 +816,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
    * @return The adjusted offset.
    */
   private static long maybeAdjustSeekOffset(
-      TrackSampleTable sampleTable, long seekTimeUs, long offset) {
+          TrackSampleTable sampleTable, long seekTimeUs, long offset) {
     int sampleIndex = getSynchronizationSampleIndex(sampleTable, seekTimeUs);
     if (sampleIndex == C.INDEX_UNSET) {
       return offset;
@@ -894,46 +872,46 @@ public final class Mp4Extractor implements Extractor, SeekMap {
   @FileType
   private static int brandToFileType(int brand) {
     switch (brand) {
-      case BRAND_QUICKTIME:
-        return FILE_TYPE_QUICKTIME;
-      case BRAND_HEIC:
-        return FILE_TYPE_HEIC;
-      default:
-        return FILE_TYPE_MP4;
+    case BRAND_QUICKTIME:
+      return FILE_TYPE_QUICKTIME;
+    case BRAND_HEIC:
+      return FILE_TYPE_HEIC;
+    default:
+      return FILE_TYPE_MP4;
     }
   }
 
   /** Returns whether the extractor should decode a leaf atom with type {@code atom}. */
   private static boolean shouldParseLeafAtom(int atom) {
     return atom == Atom.TYPE_mdhd
-        || atom == Atom.TYPE_mvhd
-        || atom == Atom.TYPE_hdlr
-        || atom == Atom.TYPE_stsd
-        || atom == Atom.TYPE_stts
-        || atom == Atom.TYPE_stss
-        || atom == Atom.TYPE_ctts
-        || atom == Atom.TYPE_elst
-        || atom == Atom.TYPE_stsc
-        || atom == Atom.TYPE_stsz
-        || atom == Atom.TYPE_stz2
-        || atom == Atom.TYPE_stco
-        || atom == Atom.TYPE_co64
-        || atom == Atom.TYPE_tkhd
-        || atom == Atom.TYPE_ftyp
-        || atom == Atom.TYPE_udta
-        || atom == Atom.TYPE_keys
-        || atom == Atom.TYPE_ilst;
+           || atom == Atom.TYPE_mvhd
+           || atom == Atom.TYPE_hdlr
+           || atom == Atom.TYPE_stsd
+           || atom == Atom.TYPE_stts
+           || atom == Atom.TYPE_stss
+           || atom == Atom.TYPE_ctts
+           || atom == Atom.TYPE_elst
+           || atom == Atom.TYPE_stsc
+           || atom == Atom.TYPE_stsz
+           || atom == Atom.TYPE_stz2
+           || atom == Atom.TYPE_stco
+           || atom == Atom.TYPE_co64
+           || atom == Atom.TYPE_tkhd
+           || atom == Atom.TYPE_ftyp
+           || atom == Atom.TYPE_udta
+           || atom == Atom.TYPE_keys
+           || atom == Atom.TYPE_ilst;
   }
 
   /** Returns whether the extractor should decode a container atom with type {@code atom}. */
   private static boolean shouldParseContainerAtom(int atom) {
     return atom == Atom.TYPE_moov
-        || atom == Atom.TYPE_trak
-        || atom == Atom.TYPE_mdia
-        || atom == Atom.TYPE_minf
-        || atom == Atom.TYPE_stbl
-        || atom == Atom.TYPE_edts
-        || atom == Atom.TYPE_meta;
+           || atom == Atom.TYPE_trak
+           || atom == Atom.TYPE_mdia
+           || atom == Atom.TYPE_minf
+           || atom == Atom.TYPE_stbl
+           || atom == Atom.TYPE_edts
+           || atom == Atom.TYPE_meta;
   }
 
   private static final class Mp4Track {
@@ -950,7 +928,7 @@ public final class Mp4Extractor implements Extractor, SeekMap {
       this.sampleTable = sampleTable;
       this.trackOutput = trackOutput;
       trueHdSampleRechunker =
-          MimeTypes.AUDIO_TRUEHD.equals(track.format.sampleMimeType)
+              MimeTypes.AUDIO_TRUEHD.equals(track.format.sampleMimeType)
               ? new TrueHdSampleRechunker()
               : null;
     }

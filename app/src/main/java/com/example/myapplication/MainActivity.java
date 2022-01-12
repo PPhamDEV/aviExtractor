@@ -25,10 +25,16 @@ public class MainActivity extends AppCompatActivity {
     PlayerView exoPlayerView;
     ExoPlayer exoPlayer;
     String mp4Video = "asset:///file_example_MP4_480_1_5MG.mp4";
-    String aviVideo = "asset:///file_example_MP4_480_1_5MG.avi";
     String mp4Video2 = "asset:///sample-avi-file.mp4";
-    String aviVideo2 = "asset:///sample-avi-file.avi";
-    String aviVideo3 = "asset:///video.avi";
+
+    String aviVideo = "asset:///avc1/erdeavc.avi";
+    String aviVideo2 = "asset:///mp42/sample-avi-file.avi";
+
+    String aviVideo3 = "asset:///h264/video.avi";
+    String ocean = "asset:///h264/ocean.avi";
+    String erde = "asset:///h264/erde.avi";
+    String kamera_h264 = "asset:///h264/kamera.avi";
+
     // url of video which we are loading.
     String videoURL =
             "https://media.geeksforgeeks.org/wp-content/uploads/20201217163353/Screenrecorder"
@@ -77,7 +83,7 @@ public class MainActivity extends AppCompatActivity {
             // we are creating a media source with above variables
             // and passing our event handler as null,
             MediaItem mediaItem =
-                    MediaItem.fromUri(Uri.parse(aviVideo));
+                    MediaItem.fromUri(Uri.parse(kamera_h264));
 
             MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory,
                                                                          extractorsFactory).createMediaSource(mediaItem);
