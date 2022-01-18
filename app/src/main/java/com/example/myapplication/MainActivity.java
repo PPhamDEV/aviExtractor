@@ -33,6 +33,7 @@ public class MainActivity extends AppCompatActivity {
     String aviVideo3 = "asset:///h264/video.avi";
     String ocean = "asset:///h264/ocean.avi";
     String erde = "asset:///h264/erde.avi";
+    String erdeMitTon = "asset:///h264/erdemitton.avi";
     String kamera_h264 = "asset:///h264/kamera.avi";
 
     // url of video which we are loading.
@@ -83,7 +84,7 @@ public class MainActivity extends AppCompatActivity {
             // we are creating a media source with above variables
             // and passing our event handler as null,
             MediaItem mediaItem =
-                    MediaItem.fromUri(Uri.parse(kamera_h264));
+                    MediaItem.fromUri(Uri.parse(erdeMitTon));
 
             MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory,
                                                                          extractorsFactory).createMediaSource(mediaItem);
@@ -94,7 +95,7 @@ public class MainActivity extends AppCompatActivity {
             exoPlayer = new ExoPlayer.Builder(exoPlayerView.getContext()).build();
             exoPlayer.setMediaSource(mediaSource);
             exoPlayer.prepare();
-            exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
+            //exoPlayer.setRepeatMode(Player.REPEAT_MODE_ONE);
             // we are setting our exoplayer
             // when it is ready.
             exoPlayer.setPlayWhenReady(true);

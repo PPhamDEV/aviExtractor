@@ -11,6 +11,7 @@ import com.google.android.exoplayer2.extractor.ExtractorInput;
 import com.google.android.exoplayer2.extractor.ExtractorOutput;
 import com.google.android.exoplayer2.extractor.PositionHolder;
 import com.google.android.exoplayer2.extractor.SeekMap;
+import com.google.android.exoplayer2.extractor.SeekPoint;
 import com.google.android.exoplayer2.extractor.TrackOutput;
 import com.google.android.exoplayer2.util.Assertions;
 import com.google.android.exoplayer2.util.MimeTypes;
@@ -19,12 +20,18 @@ import com.google.android.exoplayer2.util.ParsableByteArray;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+
+import static com.google.android.exoplayer2.C.BUFFER_FLAG_KEY_FRAME;
+import static com.google.android.exoplayer2.util.Assertions.checkNotNull;
 
 
 public class AviExtractor implements Extractor, SeekMap {
 
     private static final int MAX_AUDIO_STREAMS = 1;
     private boolean isEndOfInput = false;
+    private long[] timesUsAudio;
+    private final byte[] chunkStartCode = new byte[]{ 0,0,0,1 };
 
     @Override
     public boolean isSeekable() {
@@ -38,6 +45,10 @@ public class AviExtractor implements Extractor, SeekMap {
 
     @Override
     public SeekPoints getSeekPoints(long timeUs) {
+        if (audioTrack == null && videoTrack == null) {
+            return new SeekPoints(SeekPoint.START);
+        }
+
         return null;
     }
 
@@ -51,12 +62,13 @@ public class AviExtractor implements Extractor, SeekMap {
     private static final int STATE_READING_AVI_HEADER = 1;
     private static final int STATE_READING_TAG_DATA = 2;
 
-    private static final int AVI_HEADER_SIZE = 4;
+    private static final int START_CODE_LENGTH = 4;
     private static final int AVI_TAG = 0x41564920;
 
     //private int chunkSize;
 
     private AVIHeader aviHeader;
+    private long[] timesUsVideo;
 
     private int currentChunkSize = 0;
     private @States int state;
@@ -69,6 +81,7 @@ public class AviExtractor implements Extractor, SeekMap {
     private long durationUs = C.TIME_UNSET;
 
     private int index = 0;
+    private int indexAudio = 0;
     private String streamVideoTag;
 
 
@@ -89,23 +102,18 @@ public class AviExtractor implements Extractor, SeekMap {
                 }
                 break;
             case STATE_READING_TAG_DATA:
-                boolean o = readFrame(input);
-                if (!o) {
-                    if(isEndOfInput){
-                        return RESULT_END_OF_INPUT;
-                    }
-                    return RESULT_CONTINUE;
-                }
+                readFrame(input);
 
-                break;
+                if(isEndOfInput){
+                    return RESULT_END_OF_INPUT;
+                }
+                return RESULT_CONTINUE;
             default:
                 // Never happens.
                 throw new IllegalStateException();
             }
         }
     }
-
-    //TODO: peek() benutzen, um nach SPS und PPS zu suchen
 
     private boolean readAviHeader(ExtractorInput input) throws IOException {
         /**
@@ -154,8 +162,15 @@ public class AviExtractor implements Extractor, SeekMap {
             String command2 = new String(hdrl, i + 8, 4);
             if ("avih".equals(command)){
                 this.aviHeader = createAviHeader(hdrl, i);
+                int totalFrames = aviHeader.getDwTotalFrames();
+                int microSecPerFrame = aviHeader.getDwMicroSecPerFrame();
                 this.durationUs =
-                        (long) aviHeader.getDwTotalFrames() * aviHeader.getDwMicroSecPerFrame();
+                        (long) totalFrames * microSecPerFrame;
+                this.timesUsVideo = new long[totalFrames + 1];
+                this.timesUsAudio = new long[1431]; //TODO: WOHER KOMMT DAS?
+                for (int j = 0; j < timesUsVideo.length; j++) {
+                    timesUsVideo[j] = (long) j * microSecPerFrame;
+                }
             }
             if ("strh".equals(command)) {
                 lastTagID = 0;
@@ -224,30 +239,52 @@ public class AviExtractor implements Extractor, SeekMap {
                 }
                 if ("auds".equals(command2)) {
                     StreamHeader strhAudio = createStreamHeader(hdrl, i);
-                    numberOfAudioChannels++;
+                    int strfStartPosition = i + size + 8;
+                    int strfSize = convertByteArrayToUInt(hdrl, strfStartPosition + 4);
 
-                    byte[] test = new byte[hdrl.length - i - 64];
-                    System.arraycopy(hdrl, i + 64, test, 0, hdrl.length - i - 64);
+                    byte[] strf = new byte[strfSize + 8];
+                    System.arraycopy(hdrl, strfStartPosition, strf, 0, strfSize + 8);
 
-                    String formatTagHex = Integer.toHexString(test[17] & 0xff) + Integer.toHexString(test[16] & 0xff);
+                    String formatTagHex = Integer.toHexString(strf[9] & 0xff) + Integer.toHexString(strf[8] & 0xff);
                     int formatTag = Integer.decode("0x" + formatTagHex);
 
                     String mimeType = MimeTypes.AUDIO_UNKNOWN;
                     if(formatTag == 255) mimeType = MimeTypes.AUDIO_AAC;
 
-                    //byte[] initializationData = new byte[]{test[34], test[35]}; // TODO: IST <BLOB> IMMER VON GRÖßE 2?
+                    byte[] initializationData = new byte[0];
+                    boolean isInitializationDataPresent = strfSize > 16;
 
-                    Format format =
+                    if(isInitializationDataPresent){
+                        String cbSizeHex = Integer.toHexString(strf[25] & 0xff) + Integer.toHexString(strf[24] & 0xff);
+                        int cbSize = Integer.decode("0x" + cbSizeHex);
+                        initializationData = new byte[cbSize];
+                        if (cbSize >= 0) System.arraycopy(strf, 26, initializationData, 0, cbSize);
+                    }
+
+                    numberOfAudioChannels = strf[10];
+
+                    for (int j = 0; j < timesUsAudio.length; j++) {
+                        timesUsAudio[j] =
+                                1000000L * numberOfAudioChannels * j * strhAudio.getDwScale() / strhAudio.getDwRate();
+                    }
+                    Format.Builder formatBuilder =
                             new Format.Builder()
                                     .setId(2)
-                                    .setCodecs("mp4a.40.2")
+                                    .setCodecs("mp4a.40.2") // TODO: Für Kamera-Videos funktioniert der mp4a codec nicht, weil dwFormatTag != 255. Wir müssen herausfinden, was man macht beim Format == 7, weil die Kameras diesen benutzen
                                     .setSampleMimeType(mimeType)
-                                    .setChannelCount(2)
-                                    .setSampleRate(strhAudio.getDwRate())
-                                    .setInitializationData(null)
-                                    .build();
+                                    .setChannelCount(numberOfAudioChannels) //
+                                    .setEncoderPadding(64) // TODO: HERAUSFINDEN WOHER DIESER WERT KOMMT UND ERSETZEN
+                                    .setMaxInputSize(329) // TODO: HERAUSFINDEN WOHER DIESER WERT KOMMT UND ERSETZEN
+                                    .setLanguage("und")
+                                    .setSampleRate(strhAudio.getDwRate());
+
+                    if (isInitializationDataPresent) {
+                        formatBuilder.setInitializationData(new ArrayList<>(Collections.singletonList(
+                                initializationData)));
+                    }
+
                     audioTrack = this.extractorOutput.track(numberOfAudioChannels, C.TRACK_TYPE_AUDIO);
-                    audioTrack.format(format);
+                    audioTrack.format(formatBuilder.build());
 
                     lastTagID = 2;
 
@@ -344,19 +381,19 @@ public class AviExtractor implements Extractor, SeekMap {
         return false;
     }
 
-    private boolean getChunk(ExtractorInput input) throws IOException {
+    private void getChunk(ExtractorInput input) throws IOException {
         String command = "";
         try {
             command = new String( readBuffer(input, 4 ), "ASCII" ).toUpperCase();
         } catch (IOException e) {
             isEndOfInput = true;
-            return true;
+            return;
         }
         currentChunkSize = readBytes(input,4);
         if(currentChunkSize == C.RESULT_END_OF_INPUT)
         {
             isEndOfInput = true;
-            return true;
+            return;
         }
         /**
          * Skip LIST and RIFF
@@ -374,52 +411,63 @@ public class AviExtractor implements Extractor, SeekMap {
         String videoTag = streamVideoTag.substring(0, 3);
         if ( command.substring(0, 3).equalsIgnoreCase( videoTag ) &&
              (command.charAt(3) == 'B' || command.charAt(3) == 'C') ) {
-            /**
-             * Video
-             */
 
-            ParsableByteArray chunk = new ParsableByteArray(readBuffer(input, currentChunkSize));
-            if(currentChunkSize == 0) {
-                return true;
-            }
-            byte[] chunkHeader = new byte[4];
-            byte[] payload = new byte[currentChunkSize - 4];
-
-
-            chunk.readBytes(chunkHeader,0, 4);
-            chunk.readBytes(payload, 0, currentChunkSize - 4);
-
-            TrackOutput to = videoTrack;
-
-            to.sampleData(new ParsableByteArray(new byte[]{0,0,0,1}), 4);
-            to.sampleData(new ParsableByteArray(payload), currentChunkSize-4);
-
-            int flag = payload[0] % 10 == 5 || index == 0 ? 1 : 0;
-
-
-            to.sampleMetadata((long) index * aviHeader.getDwMicroSecPerFrame(),
-                              flag,
-                              currentChunkSize,
-                              0,
-                              null);
-
+            passChunkData(input, currentChunkSize, videoTrack, timesUsVideo, index, true);
             index++;
-
-            return true;
+            return;
+        } else if(command.equals( "JUNK" )) {
+            input.skip(currentChunkSize);
+            return;
         }
         /**
          * Match Audio strings
          */
-        for ( int i = 0; i < numberOfAudioChannels; i++ ) {
-            /**
-             * Audio
-             */
-            // TODO: sampleData und sampleMetadata für audio
-            readBuffer(input, currentChunkSize);
-            return false;
-        }
-        throw new IOException( "Not header " + command );
+        passChunkData(input, currentChunkSize, audioTrack, timesUsAudio, indexAudio, false);
+        indexAudio++;
     }
+
+    private final void passChunkData(ExtractorInput input, int currentChunkSize, TrackOutput trackOutput, long[] timestampUs, int chunkIndex, boolean isVideoChunk) throws IOException {
+        ParsableByteArray chunk = new ParsableByteArray(readBuffer(input, currentChunkSize));
+        if(currentChunkSize == 0) {
+            return;
+        }
+
+        final int payloadSize;
+        if (isVideoChunk){
+            payloadSize = currentChunkSize-START_CODE_LENGTH;
+            chunk.skipBytes(START_CODE_LENGTH);
+        } else {
+            payloadSize = currentChunkSize;
+        }
+        byte[] payload = new byte[payloadSize];
+
+        chunk.readBytes(payload, 0, payloadSize);
+
+        int flag;
+
+        if (isVideoChunk){
+            String payloadFirstByteHex = Integer.toHexString(payload[0] & 0xff);
+            if(payloadFirstByteHex.length() == 1) payloadFirstByteHex = "0" + payloadFirstByteHex;
+
+            flag = 0;
+            if(payloadFirstByteHex.charAt(1) == '5' || chunkIndex == 0) flag = BUFFER_FLAG_KEY_FRAME;
+        } else {
+            flag = 1;
+        }
+
+
+
+        trackOutput.sampleData(new ParsableByteArray(this.chunkStartCode), START_CODE_LENGTH);
+        trackOutput.sampleData(new ParsableByteArray(payload), payloadSize);
+
+        trackOutput.sampleMetadata(timestampUs[chunkIndex],
+                                   flag,
+                                   currentChunkSize,
+                                   0,
+                                   null);
+
+    }
+
 
     /**
      * Read up to 4 bytes
@@ -463,19 +511,19 @@ public class AviExtractor implements Extractor, SeekMap {
                 'd',
                 'b' } );
     }
-    public static final int convertByteArrayToUInt(byte[] data, int i){
-        return convertByteArrayToUInt(data, i, false);
+    public static final int convertByteArrayToUInt(byte[] data, int offsetInData){
+        return convertByteArrayToUInt(data, offsetInData, false);
     }
-    public static final int convertByteArrayToUInt(byte[] data, int i, boolean isByte) {
+    public static final int convertByteArrayToUInt(byte[] data, int offsetInData, boolean isByte) {
 
         if(isByte){
-            return    (data[ i ] & 0xff)  | ((data[ i + 1 ] & 0xff) << 8 );
+            return    (data[ offsetInData ] & 0xff)  | ((data[ offsetInData + 1 ] & 0xff) << 8 );
         }
 
-        return    (data[ i ] & 0xff)
-                  | ((data[ i + 1 ] & 0xff) << 8 )
-                  | ((data[ i + 2 ] & 0xff) << 16 )
-                  | ((data[ i + 3 ] & 0xff) << 24 );
+        return    (data[ offsetInData ] & 0xff)
+                  | ((data[ offsetInData + 1 ] & 0xff) << 8 )
+                  | ((data[ offsetInData + 2 ] & 0xff) << 16 )
+                  | ((data[ offsetInData + 3 ] & 0xff) << 24 );
     }
 
     private final int readByte(ExtractorInput input) throws IOException {
