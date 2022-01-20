@@ -1,7 +1,5 @@
 package com.example.myapplication;
 
-import android.media.MediaFormat;
-
 import androidx.annotation.IntDef;
 
 import com.google.android.exoplayer2.C;
@@ -70,7 +68,7 @@ public class AviExtractor implements Extractor, SeekMap {
 
     private int index = 0;
     private String streamVideoTag;
-
+    private byte[][] initData = null;
 
 
     public AviExtractor() {
@@ -164,49 +162,11 @@ public class AviExtractor implements Extractor, SeekMap {
                     StreamHeader strhVideo = createStreamHeader(hdrl, i);
                     streamVideoTag = getVideoTag(0);
 
-                    int remainingBytes = (int) (input.getLength() - input.getPosition());
-                    byte[] peekArray = new byte[remainingBytes];
-                    input.peek(peekArray, 0, remainingBytes);
-
-                    int startPositionSPS = 0, startPositionPPS = 0, endPositionSPS = 0, endPositionPPS = 0;
-
-                    for(int counter = 0; counter < peekArray.length; counter++){
-                        String currentByteHex = Integer.toHexString(peekArray[counter] & 0xff);
-                        if(currentByteHex.length() == 1) currentByteHex = "0" + currentByteHex;
-
-                        boolean potetialSPSfound = currentByteHex.charAt(1) == '7';
-                        boolean potetialPPSfound = currentByteHex.charAt(1) == '8';
-
-                        boolean startCodeFound = false;
-                        if(counter >= 4){
-                            int a = peekArray[counter-1];
-                            int b = peekArray[counter-2];
-                            int c = peekArray[counter-3];
-                            int d = peekArray[counter-4];
-                            startCodeFound = a == 1 && b == 0 && c == 0 && d == 0;
-                        }
-
-
-                        boolean SPSfound = startCodeFound && potetialSPSfound;
-                        boolean PPSfound = startCodeFound && potetialPPSfound;
-
-                        if(SPSfound){
-                            startPositionSPS = counter;
-                        } else if(PPSfound){
-                            startPositionPPS = counter;
-                            endPositionSPS = counter - 5;
-                        } else if(endPositionSPS != 0 && startPositionPPS != 0 && startCodeFound){
-                            endPositionPPS = counter - 5;
-                            input.resetPeekPosition();
-                            break;
-                        }
-                    }
-
-                    byte[] SPS = createParameterSet(peekArray, startPositionSPS, endPositionSPS);
-                    byte[] PPS = createParameterSet(peekArray, startPositionPPS, endPositionPPS);
-
-                    byte[][] arr = new byte[][]{SPS,PPS};
-
+                    //searching for SPS and PSP
+                    if(initData == null) initData = prepareInitData(input);
+//                    byte[] SPS = new byte[]{0,0,0,1,71,77,64,30,-103,-96,40,11,-2,88,64,0,0,-6,0,0,48,-44,33};
+//                    byte[] PPS = new byte[]{0,0,0,1,72,-18,60,-128};
+//                    byte[][] initData = new byte[][]{SPS,PPS};
                     lastTagID = 1;
                     Format format = new Format.Builder()
                             .setId(1)
@@ -216,7 +176,7 @@ public class AviExtractor implements Extractor, SeekMap {
                             .setWidth(aviHeader.getDwWidth())
                             .setHeight(aviHeader.getDwHeight())
                             .setMaxInputSize(aviHeader.getDwMaxBytesPerSec())
-                            .setInitializationData(new ArrayList<>(Arrays.asList(arr)))
+                            .setInitializationData(new ArrayList<>(Arrays.asList(initData)))
                             .build();
                     videoTrack = this.extractorOutput.track(0, C.TRACK_TYPE_VIDEO);
                     videoTrack.format(format);
@@ -280,6 +240,66 @@ public class AviExtractor implements Extractor, SeekMap {
 
         state = STATE_READING_TAG_DATA;
         return true;
+    }
+
+    private byte[][] prepareInitData(ExtractorInput input) throws IOException {
+        int remainingBytes = (int) (input.getLength() - input.getPosition());
+        byte[] peekArray = new byte[remainingBytes];
+        input.peek(peekArray, 0, remainingBytes);
+        input.resetPeekPosition();
+
+        int startPositionSPS = 0, startPositionPPS = 0, endPositionSPS = 0, endPositionPPS = 0;
+        int counter;
+        int pos = 0;
+        for(counter = 0; counter < peekArray.length; counter++){
+            byte[] test = new byte[4];
+            System.arraycopy(peekArray, counter, test, 0, 4);
+            String startingByte  = new String( test, "ASCII" ).toUpperCase();
+            pos = (int) input.getPosition() + counter;
+            if(startingByte.substring(0, 3).equalsIgnoreCase( "01w" )) {
+                byte[] next4bytes = new byte[4];
+                System.arraycopy(peekArray, counter+4, next4bytes, 0, 4);
+                int chunkSize =  getChunkSize(next4bytes);
+                counter += chunkSize+7;
+                continue;
+            }else {
+                boolean potetialSPSfound = false;
+                boolean potetialPPSfound = false;
+                String currentByteHex = Integer.toHexString(peekArray[counter] & 0xff);
+                if(currentByteHex.length() == 1) currentByteHex = "0" + currentByteHex;
+
+                if(!(currentByteHex.charAt(1) == '7') && !(currentByteHex.charAt(1) == '8') && startPositionSPS == 0){
+                    continue;
+                }else if(currentByteHex.charAt(1) == '7') {
+                    potetialSPSfound = true;
+                }else if(currentByteHex.charAt(1) == '8') {
+                    potetialPPSfound = true;
+                }
+                boolean startCodeFound = peekArray[counter-4] == 0 &&
+                                         peekArray[counter-3] == 0 &&
+                                         peekArray[counter-2] == 0 &&
+                                         peekArray[counter-1] == 1;
+
+                boolean SPSfound = startCodeFound && potetialSPSfound;
+                boolean PPSfound = startCodeFound && potetialPPSfound;
+                pos = (int) input.getPosition() + counter;
+                if(SPSfound){
+                    startPositionSPS = counter;
+                } else if(PPSfound){
+                    startPositionPPS = counter;
+                    endPositionSPS = counter - 5;
+                } else if(endPositionSPS > 0 && startPositionPPS > 0 && startCodeFound){
+                    endPositionPPS = counter - 5;
+                    break;
+                }
+            }
+
+        }
+        pos = (int) input.getPosition() + counter;
+        byte[] SPS = createParameterSet(peekArray, startPositionSPS, endPositionSPS);
+        byte[] PPS = createParameterSet(peekArray, startPositionPPS, endPositionPPS);
+
+        return new byte[][]{SPS,PPS};
     }
     private byte[] createParameterSet(byte[] srcArray, int startPosition, int endPosition){
         int length = endPosition - startPosition + 1;
@@ -352,6 +372,7 @@ public class AviExtractor implements Extractor, SeekMap {
             isEndOfInput = true;
             return true;
         }
+        int position = (int) input.getPosition();
         currentChunkSize = readBytes(input,4);
         if(currentChunkSize == C.RESULT_END_OF_INPUT)
         {
@@ -419,6 +440,10 @@ public class AviExtractor implements Extractor, SeekMap {
             return false;
         }
         throw new IOException( "Not header " + command );
+    }
+
+    private final int getChunkSize(byte[] src){
+        return (src[ 0 ] & 0xff) | ((src[ 1 ] & 0xff) << 8) | ((src[ 2 ] & 0xff) << 16) | ((src[ 3 ] & 0xff) << 24);
     }
 
     /**

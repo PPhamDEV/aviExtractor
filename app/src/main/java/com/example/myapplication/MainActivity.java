@@ -29,11 +29,13 @@ public class MainActivity extends AppCompatActivity {
 
     String aviVideo = "asset:///avc1/erdeavc.avi";
     String aviVideo2 = "asset:///mp42/sample-avi-file.avi";
-
+    String kamera1_h264 = "asset:///h264/kamera1.avi";
     String aviVideo3 = "asset:///h264/video.avi";
     String ocean = "asset:///h264/ocean.avi";
     String erde = "asset:///h264/erde.avi";
     String kamera_h264 = "asset:///h264/kamera.avi";
+    String kamera2_h264 = "asset:///h264/kamera2.avi";
+    String kamera3_h264 = "asset:///h264/kamera3.avi";
 
     // url of video which we are loading.
     String videoURL =
@@ -81,9 +83,9 @@ public class MainActivity extends AppCompatActivity {
             };
 
             // we are creating a media source with above variables
-            // and passing our event handler as null,
+            // and passing our event handlerkamera2_h264 as null,
             MediaItem mediaItem =
-                    MediaItem.fromUri(Uri.parse(kamera_h264));
+                    MediaItem.fromUri(Uri.parse(kamera3_h264));
 
             MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory,
                                                                          extractorsFactory).createMediaSource(mediaItem);
