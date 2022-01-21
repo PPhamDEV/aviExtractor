@@ -17,6 +17,7 @@ import com.google.android.exoplayer2.util.ParsableByteArray;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 
 public class AviExtractor implements Extractor, SeekMap {
@@ -163,7 +164,7 @@ public class AviExtractor implements Extractor, SeekMap {
                     streamVideoTag = getVideoTag(0);
 
                     //searching for SPS and PSP
-                    if(initData == null) initData = prepareInitData(input);
+                    initData = prepareInitData(input);
 //                    byte[] SPS = new byte[]{0,0,0,1,71,77,64,30,-103,-96,40,11,-2,88,64,0,0,-6,0,0,48,-44,33};
 //                    byte[] PPS = new byte[]{0,0,0,1,72,-18,60,-128};
 //                    byte[][] initData = new byte[][]{SPS,PPS};
@@ -242,16 +243,85 @@ public class AviExtractor implements Extractor, SeekMap {
         return true;
     }
 
+    /*F7 F7 F7 F6 F7 F7 F6 F7 F7 F7 F7 F7 F7 F7 F7 F7 30 30 64 62 FC 7D 00 00 00 00 00 01 47 4D 40 1E 99 A0 28 0B FE 58 40 00 00 FA 00 00 30 D4 21 00 00 00 01 48 EE 3C 80 00 00 00 01 45 B8 00 E7 FF*/
+    //[F7,F7,F7,F6,F7]
     private byte[][] prepareInitData(ExtractorInput input) throws IOException {
-        int remainingBytes = (int) (input.getLength() - input.getPosition());
-        byte[] peekArray = new byte[remainingBytes];
-        input.peek(peekArray, 0, remainingBytes);
-        input.resetPeekPosition();
+        long startingPeekPosition = input.getPeekPosition();
+        boolean initDataFound = false;
+        Byte[] last5Bytes = new Byte[5];
+        byte[] currentByte = new byte[1];
+        List<Byte> SPS = new ArrayList<Byte>();
+        List<Byte> PPS = new ArrayList<Byte>();
 
-        int startPositionSPS = 0, startPositionPPS = 0, endPositionSPS = 0, endPositionPPS = 0;
-        int counter;
-        int pos = 0;
-        for(counter = 0; counter < peekArray.length; counter++){
+        boolean SPSfound = false;
+        boolean PPSfound = false;
+        int counter = 0;
+
+        while (!initDataFound){
+            input.peek(currentByte, 0, 1);
+
+            if(counter < 5){
+                last5Bytes[counter] = currentByte[0];
+                counter++;
+                continue;
+            }
+            boolean startCodeFound = last5Bytes[0] == 0 && last5Bytes[1] == 0 && last5Bytes[2] == 0 && last5Bytes[3] == 1;
+            if(!SPSfound) SPSfound = startCodeFound && (last5Bytes[4] & 0x0f) == 7;
+            if(!PPSfound) PPSfound = startCodeFound && (last5Bytes[4] & 0x0f) == 8;
+
+            if(SPSfound && SPS.size() == 0){
+                SPS.addAll(Arrays.asList(last5Bytes));
+                SPS.add(currentByte[0]);
+
+            } else if(SPSfound && SPS.size() != 0 && PPSfound == false){
+                SPS.add(currentByte[0]);
+            }
+            if(PPS.size() == 0 && PPSfound ){
+                int SPSsize = SPS.size();
+                for (int i = 1; i <= 5; i++) {
+                    SPS.remove(SPSsize - i);
+                }
+
+                PPS.addAll(Arrays.asList(last5Bytes));
+                PPS.add(currentByte[0]);
+
+            } else if(PPS.size() != 0 && PPSfound && !startCodeFound){
+                PPS.add(currentByte[0]);
+            } else if(PPS.size() != 0 && PPSfound){
+                int PPSsize = PPS.size();
+                for (int i = 1; i <= 5; i++) {
+                    PPS.remove(PPSsize - i);
+                }
+                initDataFound = true;
+            }
+
+                last5Bytes[0] = last5Bytes[1];
+                last5Bytes[1] = last5Bytes[2];
+                last5Bytes[2] = last5Bytes[3];
+                last5Bytes[3] = last5Bytes[4];
+                last5Bytes[4] = currentByte[0];
+        }
+
+
+        return new byte[][]{convertByteListToPrimitive(SPS), convertByteListToPrimitive(PPS)};
+
+
+
+
+
+
+
+        /*int remainingBytes = (int) (input.getLength() - input.getPosition());
+        byte[] readBytes = new byte[remainingBytes];
+        long startPositionSPS = 0, startPositionPPS = 0, endPositionSPS = 0, endPositionPPS = 0;
+        while (startPositionSPS == 0) {
+            input.peek(readBytes, (int) (input.getPeekPosition() - startingPeekPosition), 1);
+            {0,0,0,1,1234,1231,0,0,0,1, 142,412,41234, 0,0,0,1}
+            boolean SPSfound = peekArray[0] == 0 && peekArray[1] == 0 && peekArray[2] == 0 && peekArray[3] == 0 && (peekArray[4] & 0x0f) == 7;
+
+            if(SPSfound) startPositionSPS = input.getPosition();
+        }
+        for(int counter = 0; counter < peekArray.length; counter++){
             byte[] test = new byte[4];
             System.arraycopy(peekArray, counter, test, 0, 4);
             String startingByte  = new String( test, "ASCII" ).toUpperCase();
@@ -299,7 +369,16 @@ public class AviExtractor implements Extractor, SeekMap {
         byte[] SPS = createParameterSet(peekArray, startPositionSPS, endPositionSPS);
         byte[] PPS = createParameterSet(peekArray, startPositionPPS, endPositionPPS);
 
-        return new byte[][]{SPS,PPS};
+        return new byte[][]{SPS,PPS};*/
+    }
+    public static byte[] convertByteListToPrimitive(List<Byte> bytes)
+    {
+        byte[] ret = new byte[bytes.size()];
+        for (int i=0; i < ret.length; i++)
+        {
+            ret[i] = bytes.get(i);
+        }
+        return ret;
     }
     private byte[] createParameterSet(byte[] srcArray, int startPosition, int endPosition){
         int length = endPosition - startPosition + 1;

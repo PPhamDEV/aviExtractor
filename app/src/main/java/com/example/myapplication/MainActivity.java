@@ -85,7 +85,7 @@ public class MainActivity extends AppCompatActivity {
             // we are creating a media source with above variables
             // and passing our event handlerkamera2_h264 as null,
             MediaItem mediaItem =
-                    MediaItem.fromUri(Uri.parse(kamera3_h264));
+                    MediaItem.fromUri(Uri.parse(kamera2_h264));
 
             MediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory,
                                                                          extractorsFactory).createMediaSource(mediaItem);
