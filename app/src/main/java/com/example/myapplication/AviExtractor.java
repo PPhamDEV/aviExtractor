@@ -237,7 +237,7 @@ public class AviExtractor implements Extractor, SeekMap {
                 this.durationUs =
                         (long) totalFrames * microSecPerFrame;
                 this.timesUsVideo = new long[totalFrames + 1];
-                this.timesUsAudio = new long[1431]; //TODO: WOHER KOMMT DAS?
+                this.timesUsAudio = new long[10000]; //TODO: WOHER KOMMT DAS?
                 for (int j = 0; j < timesUsVideo.length; j++) {
                     timesUsVideo[j] = (long) j * microSecPerFrame;
                 }
@@ -267,6 +267,7 @@ public class AviExtractor implements Extractor, SeekMap {
                 }
                 if ("auds".equals(command2)) {
                     StreamHeader strhAudio = createStreamHeader(hdrl, i);
+                    this.timesUsAudio = new long[strhAudio.getDwLength()];
                     int strfStartPosition = i + size + 8;
                     int strfSize = convertByteArrayToUInt(hdrl, strfStartPosition + 4);
 
@@ -278,7 +279,7 @@ public class AviExtractor implements Extractor, SeekMap {
 
                     String mimeType = MimeTypes.AUDIO_UNKNOWN;
                     if(formatTag == 255) mimeType = MimeTypes.AUDIO_AAC;
-
+                    else if(formatTag == 7) mimeType = MimeTypes.AUDIO_MLAW;
                     byte[] initializationData = new byte[0];
                     boolean isInitializationDataPresent = strfSize > 16;
 
@@ -290,19 +291,22 @@ public class AviExtractor implements Extractor, SeekMap {
                     }
 
                     numberOfAudioChannels = strf[10];
+                    long timestamp = 0;
+                    if(mimeType.equals(MimeTypes.AUDIO_MLAW)) {
+                        timestamp = numberOfAudioChannels * 40000;
+                    }else if(mimeType.equals(MimeTypes.AUDIO_AAC)) {
+                        timestamp = numberOfAudioChannels * 1000000L * strhAudio.getDwScale() / strhAudio.getDwRate();
+                    }
 
                     for (int j = 0; j < timesUsAudio.length; j++) {
                         timesUsAudio[j] =
-                                1000000L * numberOfAudioChannels * j * strhAudio.getDwScale() / strhAudio.getDwRate();
+                                j * timestamp;
                     }
                     Format.Builder formatBuilder =
                             new Format.Builder()
                                     .setId(2)
-                                    .setCodecs("mp4a.40.2") // TODO: Für Kamera-Videos funktioniert der mp4a codec nicht, weil dwFormatTag != 255. Wir müssen herausfinden, was man macht beim Format == 7, weil die Kameras diesen benutzen
                                     .setSampleMimeType(mimeType)
                                     .setChannelCount(numberOfAudioChannels) //
-                                    .setEncoderPadding(64) // TODO: HERAUSFINDEN WOHER DIESER WERT KOMMT UND ERSETZEN
-                                    .setMaxInputSize(329) // TODO: HERAUSFINDEN WOHER DIESER WERT KOMMT UND ERSETZEN
                                     .setLanguage("und")
                                     .setSampleRate(strhAudio.getDwRate());
 
